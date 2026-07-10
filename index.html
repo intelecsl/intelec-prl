@@ -1054,7 +1054,9 @@ function App() {
     setBuscandoSan(true);
     try {
       var origenCoord = await geocodificar(ubicacion);
-      if (!origenCoord) throw new Error("No se pudo localizar la direccion del emplazamiento. Revisa que este bien escrita.");
+      if (!origenCoord && emp.emplazamiento) origenCoord = await geocodificar(emp.emplazamiento);
+      if (!origenCoord && (emp.municipio || emp.provincia)) origenCoord = await geocodificar([emp.municipio, emp.provincia].filter(Boolean).join(", "));
+      if (!origenCoord) throw new Error("No se pudo localizar la direccion del emplazamiento (ni siquiera de forma aproximada por municipio/provincia). Revisa que este bien escrita.");
       var promptQueries = "Genera 3 consultas de busqueda en texto libre, en espa\xF1ol, tal y como se escribirian en el buscador de Google Maps, para localizar cerca de la ubicacion '" + ubicacion + `' (Espa\xF1a):
 1) el hospital de urgencias mas cercano.
 2) un centro asistencial de la mutua de accidentes de trabajo FREMAP (la consulta debe mencionar explicitamente 'FREMAP', no otra mutua).
