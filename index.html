@@ -1001,7 +1001,7 @@ function App() {
     return "https://staticmap.openstreetmap.de/staticmap.php?" + params.join("&");
   };
   var buscarCentroIA = async function(query, apiKeyIA) {
-    var prompt = "Busca en internet informacion real y actual sobre: " + query + '. Necesito el nombre exacto del centro y su direccion postal completa (calle, numero, codigo postal y municipio), y su telefono de contacto si lo encuentras. Responde SOLO JSON valido, sin markdown ni texto adicional, con este formato exacto: {"nombre":"...","direccion":"...","telefono":"..."}. Si no encuentras el telefono, deja ese campo como cadena vacia (""). Si no logras encontrar el centro, responde {"nombre":"","direccion":"","telefono":""}.';
+    var prompt = "Busca en internet (usa la herramienta de busqueda web una unica vez, la primera vez que la necesites) informacion real y actual sobre: " + query + '. Necesito el nombre exacto del centro y su direccion postal completa (calle, numero, codigo postal y municipio), y su telefono de contacto si lo encuentras. En cuanto tengas el resultado de la busqueda, responde INMEDIATAMENTE, sin explicaciones ni razonamientos adicionales, SOLO con JSON valido, sin markdown, con este formato exacto: {"nombre":"...","direccion":"...","telefono":"..."}. Si no encuentras el telefono, deja ese campo como cadena vacia (""). Si no logras encontrar el centro, responde {"nombre":"","direccion":"","telefono":""}.';
     var messages = [{ role: "user", content: prompt }];
     var fullText = "";
     for (var turn = 0; turn < 4; turn++) {
@@ -1010,8 +1010,8 @@ function App() {
         headers: { "Content-Type": "application/json", "x-api-key": apiKeyIA, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
-          max_tokens: 1200,
-          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
+          max_tokens: 2048,
+          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
           messages
         })
       });
@@ -1073,9 +1073,6 @@ Responde SOLO JSON valido sin markdown ni texto adicional: {"hospital":"...","mu
       var sq = rawQ.indexOf("{"), eq = rawQ.lastIndexOf("}");
       if (sq < 0 || eq < 0) throw new Error("La IA no genero las consultas de busqueda.");
       var queries = JSON.parse(rawQ.slice(sq, eq + 1));
-      var hospitalPlace = await buscarCentroIA(queries.hospital, apiKey);
-      var mutuaPlace = await buscarCentroIA(queries.mutua, apiKey);
-      var centroSaludPlace = await buscarCentroIA(queries.centroSalud, apiKey);
       var mkLink = function(destCoord) {
         if (!destCoord || destCoord.lat == null) return "";
         return "https://www.google.com/maps/dir/?api=1&origin=" + encodeURIComponent(ubicacion) + "&destination=" + destCoord.lat + "," + destCoord.lon + "&travelmode=driving";
@@ -1085,6 +1082,7 @@ Responde SOLO JSON valido sin markdown ni texto adicional: {"hospital":"...","mu
         var out = { nombre: place.nombre, direccion: place.direccion, telefono: place.telefono, mapsUrl: "" };
         var destCoord = null;
         if (place.direccion) destCoord = await geocodificar(place.direccion);
+        if (!destCoord && place.direccion) destCoord = await geocodificar(place.direccion + ", Espa\xF1a");
         if (!destCoord && place.nombre) destCoord = await geocodificar(place.nombre + (emp.municipio ? ", " + emp.municipio : ""));
         if (destCoord) {
           out.mapsUrl = mkLink(destCoord);
@@ -1097,10 +1095,22 @@ Responde SOLO JSON valido sin markdown ni texto adicional: {"hospital":"...","mu
         }
         return out;
       };
-      var hospitalOut = await enriquecer(hospitalPlace);
-      var mutuaOut = await enriquecer(mutuaPlace);
-      var centroSaludOut = await enriquecer(centroSaludPlace);
-      if (!hospitalOut && !mutuaOut && !centroSaludOut) throw new Error("La busqueda no encontro centros cercanos a esa direccion.");
+      var buscarCategoria = async function(query) {
+        try {
+          var place = await buscarCentroIA(query, apiKey);
+          return await enriquecer(place);
+        } catch (errCat) {
+          console.error("No se pudo obtener el centro para la consulta: " + query, errCat);
+          return null;
+        }
+      };
+      var resultados = await Promise.all([
+        buscarCategoria(queries.hospital),
+        buscarCategoria(queries.mutua),
+        buscarCategoria(queries.centroSalud)
+      ]);
+      var hospitalOut = resultados[0], mutuaOut = resultados[1], centroSaludOut = resultados[2];
+      if (!hospitalOut && !mutuaOut && !centroSaludOut) throw new Error("La busqueda no encontro centros cercanos a esa direccion. Vuelve a intentarlo; si el problema persiste, puede que tu clave de Anthropic no tenga acceso a la busqueda web (web search).");
       setSanitarios({
         hospital: hospitalOut,
         mutua: mutuaOut,
