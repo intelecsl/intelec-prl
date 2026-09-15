@@ -856,6 +856,51 @@ function App() {
       return n;
     });
   };
+  var analizarPdfTextoAuto = async function(texto) {
+    var did = uid();
+    setDocsObra(function(p) {
+      return p.concat([{ id: did, nom: "Presupuesto/PDF de obra (automatico)", estado: "procesando" }]);
+    });
+    try {
+      if (!apiKey) throw new Error("Configura tu clave de API de Anthropic (icono de ajustes \u2699 arriba a la derecha > Clave de Anthropic) y vuelve a abrir este enlace para generar la descripcion automaticamente.");
+      var instruccion = 'Analiza este documento de obra de Intelec de forma COMPLETA: leelo entero, todas sus secciones, no te detengas en la primera parte. Extrae: (1) TODOS los datos de identificacion de la obra que encuentres (nombre de la obra, cliente final, emplazamiento, municipio, provincia, plazo de ejecucion, numero de trabajadores, promotor/cliente, CIF del promotor, direccion del promotor, tecnico), y (2) el listado de actividades/trabajos a realizar (estructura jerarquica de capitulos/subcapitulos/apartados), uno por linea, sin codigos de partida ni precios. Completa cada campo aunque la informacion aparezca de forma indirecta o repartida en distintas partes del documento; si un dato no aparece en ningun sitio, deja su valor como cadena vacia. Responde SOLO JSON sin markdown: {"nombreObra":"","clienteFinal":"","emplazamiento":"","municipio":"","provincia":"","plazoEjecucion":"","numTrabajadores":"","promotorNombre":"","promotorCIF":"","promotorDir":"","tecnico":"","descripcionTrabajos":"listado de actividades"}';
+      var resp = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3e3, messages: [{ role: "user", content: instruccion + "\n\nTEXTO DEL DOCUMENTO:\n" + texto }] }) });
+      var d = await resp.json();
+      if (!resp.ok) throw new Error(d.error && d.error.message || "Error de la API (" + resp.status + ")");
+      var blq = d.content && d.content.find(function(x) {
+        return x.type === "text";
+      });
+      var raw = blq ? blq.text : "{}";
+      var s = raw.indexOf("{"), e2 = raw.lastIndexOf("}");
+      var p2 = s >= 0 && e2 > s ? JSON.parse(raw.slice(s, e2 + 1)) : {};
+      var texto2 = p2.descripcionTrabajos || "";
+      var campos = p2;
+      setEmp(function(prev) {
+        var n = Object.assign({}, prev);
+        ["nombreObra", "clienteFinal", "emplazamiento", "municipio", "provincia", "plazoEjecucion", "numTrabajadores", "promotorNombre", "promotorCIF", "promotorDir", "tecnico"].forEach(function(k) {
+          if (campos[k] && !prev[k]) n[k] = campos[k];
+        });
+        return n;
+      });
+      if (texto2) {
+        setEmp(function(prev) {
+          var sep = prev.tipoTrabajos && texto2 ? "\n\n--- Presupuesto PDF (automatico) ---\n" : "";
+          return Object.assign({}, prev, { tipoTrabajos: (prev.tipoTrabajos || "") + (sep || "") + texto2 });
+        });
+      }
+      setDocsObra(function(p) {
+        return p.map(function(x) {
+          return x.id === did ? Object.assign({}, x, { estado: "ok", ref: campos.nombreObra || "" }) : x;
+        });
+      });
+    } catch (err) {
+      setDocsObra(function(p) {
+        return p.map(function(x) {
+          return x.id === did ? Object.assign({}, x, { estado: "error", err: err.message }) : x;
+        });
+      });
+    }
+  };
   useEffect(function() {
     try {
       var params = new URLSearchParams(window.location.search);
@@ -871,6 +916,10 @@ function App() {
           });
           return n;
         });
+      }
+      var pdfTexto = params.get("pdfTexto");
+      if (pdfTexto) {
+        analizarPdfTextoAuto(pdfTexto);
       }
     } catch (e) {
       console.error("No se pudieron leer parametros de la URL", e);
