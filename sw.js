@@ -6,7 +6,7 @@
 // IMPORTANTE: el nombre de la cache incluye la version de la app. Cuando subas una nueva
 // version (nuevo index.html con VERSION distinto), cambia tambien CACHE_VERSION aqui abajo
 // para que los telefonos descarguen la version nueva en vez de quedarse con la cacheada.
-var CACHE_VERSION = "dgp-prl-v3.04";
+var CACHE_VERSION = "dgp-prl-v3.05";
 var APP_SHELL = [
   "./index.html",
   "./manifest.json",
